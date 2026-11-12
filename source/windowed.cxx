@@ -103,6 +103,11 @@ namespace son8::windowed {
                 case 0x00u: break; // unspecified behavior, use GLFW default
                 default: throw std::runtime_error( "son8::windowed: Config requires valid OpenGL profile, one of [00,CB,CE]" );
             }
+            // TODO: add config option, Optinal< bool > DebugGL:
+            // \ not set auto (current behavior, for version 4.3+ add debug context)
+            // \ true always set debug context hint
+            // \ false never set debug context hint
+            if ( major == 4 and minor >= 3 ) { glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE ); }
 
             window_ = glfwCreateWindow( config.width( ), config.height( ), config.title( ), nullptr, nullptr );
             if ( not window_ ) throw std::runtime_error( "son::windowed: glfwCreateWindow() failed" );
