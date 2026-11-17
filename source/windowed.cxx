@@ -92,22 +92,26 @@ namespace son8::windowed {
             if ( check_minor[ major ] < minor ) throw std::runtime_error( "son8::windowed: Config requires valid OpenGL minor version" );
             // NOTE: important to clear hints
             glfwDefaultWindowHints( );
+        #ifndef NDEBUG
+            // TODO: add config option, `optional< bool > DebugGL`:
+            // \ not set auto (current behavior, for all version try add debug context hint in debug builds)
+            // \ true always set debug context hint
+            // \ false never set debug context hint
+            // NOTE: cannot check major or minor versions as actual version could differ from requested anyway
+            glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE );
+        #endif // debug builds
             glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, major );
             glfwWindowHint( GLFW_CONTEXT_VERSION_MINOR, minor );
             glfwWindowHint( GLFW_RESIZABLE, GLFW_FALSE );
 
             auto profile_hint = []( auto val ) { glfwWindowHint( GLFW_OPENGL_PROFILE, val ); };
+
             switch ( version & 0xFFu ) {
                 case 0xCBu: profile_hint( GLFW_OPENGL_COMPAT_PROFILE ); break;
                 case 0xCEu: profile_hint( GLFW_OPENGL_CORE_PROFILE ); break;
                 case 0x00u: break; // unspecified behavior, use GLFW default
                 default: throw std::runtime_error( "son8::windowed: Config requires valid OpenGL profile, one of [00,CB,CE]" );
             }
-            // TODO: add config option, Optinal< bool > DebugGL:
-            // \ not set auto (current behavior, for version 4.3+ add debug context)
-            // \ true always set debug context hint
-            // \ false never set debug context hint
-            if ( major == 4 and minor >= 3 ) { glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE ); }
 
             window_ = glfwCreateWindow( config.width( ), config.height( ), config.title( ), nullptr, nullptr );
             if ( not window_ ) throw std::runtime_error( "son::windowed: glfwCreateWindow() failed" );
