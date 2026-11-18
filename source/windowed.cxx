@@ -59,6 +59,7 @@ namespace son8::windowed {
         GLFWwindow *window_;
         static constexpr Size Max_Count = 1u;
         static constexpr auto Max_Linger_US = 20'000u;
+        static constexpr auto Max_Viewport_Size = 8192u;
         static constexpr auto Error_Size = static_cast< unsigned >( Error::Size_ );
     public:
         Config const config;
@@ -70,36 +71,60 @@ namespace son8::windowed {
 
         static constexpr std::array< char const *, Error_Size > ErrorMessages{{
             "son8::windowed: Window - Not an error",
-            "son8::windowed: Window - Context is already bound",
+            "son8::windowed: Window - Context is already bound, maybe try to `free_opengl` method before calling `run*` method family",
             "son8::windowed: Window - Load glad failed",
         }};
-        Impl_( Config const &configInit = { } ) : config{ configInit } {
-            if ( not is_main_thread( ) ) throw std::runtime_error( "son8::windowed: Window requires create instances only on main thread" );
+        Impl_( Config const &configInit = { }) : config{ configInit } {
+            if ( not is_main_thread( ) ) {
+                throw std::runtime_error{ "son8::windowed: Window requires create instances only on main thread" };
+            }
+
             { static main_thread_::InitGLFW InitGLFW; } // hide `InitGLFW` not used outside
             // NOTE: check always after `is_main_thread` check, it allow avoid using atomic
             // \ for global window counting, as window can be created only on 1 main thread
-            if ( Max_Count <= GlobalWindowCount_ ) throw std::runtime_error( "son8::windowed: Window requires only one instance per process" );
+            if ( Max_Count <= GlobalWindowCount_ ) {
+                throw std::runtime_error{ "son8::windowed: Window requires only one instance per process" };
+            }
 
-            if ( config.linger_us( ) > Max_Linger_US ) throw std::runtime_error( "son8::windowed: Config requires that linger does not exceed 20 milliseconds" );
+            if ( config.linger_us( ) > Max_Linger_US ) {
+                throw std::runtime_error{ "son8::windowed: Config requires that linger does not exceed 20 milliseconds" };
+            }
+
+            bool isValidRect = config.width( ) < Max_Viewport_Size and config.height( ) < Max_Viewport_Size;
+
+            if ( not isValidRect ) {
+                throw std::runtime_error{ "son8::windowed: Config requires width and height not exceed 8192 value in any dimension" };
+            }
+
 
             auto version = config.version( );
-            auto major = version >> 16u;
-            if ( 4 < major or major < 1 ) throw std::runtime_error( "son8::windowed: Config requires valid OpenGL major version" );
+            auto major = static_cast< int >( version >> 16u );
 
-            auto minor = ( version >> 8u ) & 0xFFu;
-            auto skip = 0u;
-            unsigned check_minor[] = { skip, 5u, 1u, 3u, 6u };
-            if ( check_minor[ major ] < minor ) throw std::runtime_error( "son8::windowed: Config requires valid OpenGL minor version" );
+            if ( 4 < major or major < 1 ) {
+                throw std::runtime_error{ "son8::windowed: Config requires valid OpenGL major version" };
+            }
+
+            int minor = ( version >> 8u ) & 0xFFu;
+            constexpr int skip{ 0 };
+            int check_minor[] = { skip, 5, 1, 3, 6 };
+
+            if ( check_minor[ major ] < minor ) {
+                throw std::runtime_error{ "son8::windowed: Config requires valid OpenGL minor version" };
+            }
             // NOTE: important to clear hints
             glfwDefaultWindowHints( );
         #ifndef NDEBUG
-            // TODO: add config option, `optional< bool > DebugGL`:
+            constexpr bool Auto_Debug_GL = true;
+        #else
+            constexpr bool Auto_Debug_GL = false;
+        #endif // debug builds
+            // `Auto_Debug_GL`:
             // \ not set auto (current behavior, for all version try add debug context hint in debug builds)
             // \ true always set debug context hint
             // \ false never set debug context hint
             // NOTE: cannot check major or minor versions as actual version could differ from requested anyway
-            glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE );
-        #endif // debug builds
+            auto isDebugContext = config.debug_gl( ).option.value_or( Auto_Debug_GL ) ? GLFW_TRUE : GLFW_FALSE;
+            glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, isDebugContext );
             glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, major );
             glfwWindowHint( GLFW_CONTEXT_VERSION_MINOR, minor );
             glfwWindowHint( GLFW_RESIZABLE, GLFW_FALSE );
@@ -107,17 +132,24 @@ namespace son8::windowed {
             auto profile_hint = []( auto val ) { glfwWindowHint( GLFW_OPENGL_PROFILE, val ); };
 
             switch ( version & 0xFFu ) {
-                case 0xCBu: profile_hint( GLFW_OPENGL_COMPAT_PROFILE ); break;
-                case 0xCEu: profile_hint( GLFW_OPENGL_CORE_PROFILE ); break;
-                case 0x00u: break; // unspecified behavior, use GLFW default
-                default: throw std::runtime_error( "son8::windowed: Config requires valid OpenGL profile, one of [00,CB,CE]" );
+            case 0xCBu: { profile_hint( GLFW_OPENGL_COMPAT_PROFILE ); break; }
+            case 0xCEu: { profile_hint( GLFW_OPENGL_CORE_PROFILE ); break; }
+            case 0x00u: { break; } // unspecified behavior, use GLFW default
+                default: {
+                    throw std::runtime_error{ "son8::windowed: Config requires valid OpenGL profile, one of [00,CB,CE]" };
+                }
             }
 
-            window_ = glfwCreateWindow( config.width( ), config.height( ), config.title( ), nullptr, nullptr );
-            if ( not window_ ) throw std::runtime_error( "son::windowed: glfwCreateWindow() failed" );
+            auto cfgW = static_cast< int >( config.width( ));
+            auto cfgH = static_cast< int >( config.height( ));
+            window_ = glfwCreateWindow( cfgW, cfgH, config.title( ), nullptr, nullptr );
+
+            if ( not window_ ) {
+                throw std::runtime_error{ "son::windowed: glfwCreateWindow() failed" };
+            }
             // NOTE: for not resizable windows resize immediately
             // \ to avoid bug on `wayland` tiling window managers
-            glfwSetWindowSize( window_, config.width( ), config.height( ) );
+            glfwSetWindowSize( window_, cfgW, cfgH );
             // NOTE: should be LAST to avoid not correct behavior
             // \ when adding more stuff to the constructor method
             ++GlobalWindowCount_;
@@ -133,7 +165,7 @@ namespace son8::windowed {
             // \ to possible static (globals) objects out-order creation
             // \ main thread Global id could be not initialized properly
             // \ in case of background thread this check is always false
-            if ( id == Thread::id{ } ) id = std::this_thread::get_id( );
+            if ( id == Thread::id{ }) id = std::this_thread::get_id( );
 
             return std::this_thread::get_id( ) == id;
         }
@@ -142,7 +174,7 @@ namespace son8::windowed {
             // NOTE: requires `glfwMakeCurrentContext` to be active
             assert( glfwGetCurrentContext( ) == window_ && "son8::windowed: Window implementation logic error, not an current context" );
             static Error_ loadError = []( ) {
-                if ( gladLoadGL( glfwGetProcAddress ) ) return Error::None;
+                if ( gladLoadGL( glfwGetProcAddress )) { return Error::None; }
 
                 return Error::LoadGlad;
             }( );
@@ -172,11 +204,12 @@ namespace son8::windowed {
     Window::Error Window::bind_opengl( ) {
         Lock contextLock{ impl_->swapMutex };
 
-        if ( not impl_->is_swap_thread_empty( ) ) return Error::AlreadyBound;
+        if ( not impl_->is_swap_thread_empty( )) { return Error::AlreadyBound; }
 
-        glfwMakeContextCurrent( impl_->window( ) );
+        glfwMakeContextCurrent( impl_->window( ));
 
         auto loadError = impl_->load_opengl( );
+
         if ( loadError != Error::None ) {
             glfwMakeContextCurrent( nullptr );
             return loadError;
@@ -189,13 +222,13 @@ namespace son8::windowed {
 
         return Error::None;
     }
-    // -- init_opengl is deprecated
+    // -- init_opengl is deprecated, TODO: remove on release
     Window::Error Window::init_opengl( ) {
         return bind_opengl( );
     }
 
     bool Window::is_closing( ) const {
-        return glfwWindowShouldClose( impl_->window( ) );
+        return glfwWindowShouldClose( impl_->window( ));
     }
 
     bool Window::is_error( Error error ) noexcept {
@@ -211,18 +244,19 @@ namespace son8::windowed {
     }
 
     void Window::swap_buffer( ) const {
-        glfwSwapBuffers( impl_->window( ) );
+        glfwSwapBuffers( impl_->window( ));
     }
     // window private implementation
     // --
     void Window::if_Error_Throw( Error error ) const {
         assert( error < Error::Size_ && "son8::windowed: Window::if_Error_Throw implementation logic error code exceed size" );
-        if ( not is_error( error ) ) return;
+        if ( not is_error( error )) { return; }
         throw std::runtime_error{ Impl_::ErrorMessages[static_cast< Size >( error )] };
     }
     // --
     void Window::check_Poll_Main_Thread( ) const {
-        if ( not impl_->is_main_thread( ) ) throw std::runtime_error( "son8::windowed: Window requires poll events on main thread" );
+        if ( impl_->is_main_thread( )) { return; }
+        throw std::runtime_error{ "son8::windowed: Window requires poll events on main thread" };
     }
     // --
     long long Window::poll_Linger_Start( ) const {
@@ -232,7 +266,7 @@ namespace son8::windowed {
     void Window::poll_Linger_Until( long long startPoint ) const {
         auto duration = Clock::duration{ startPoint };
         auto timemark = Clock::time_point{ duration };
-        auto deadline = timemark + time::microseconds( impl_->config.linger_us( ) );
+        auto deadline = timemark + time::microseconds( impl_->config.linger_us( ));
         std::this_thread::sleep_until( deadline );
     }
 

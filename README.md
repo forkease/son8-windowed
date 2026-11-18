@@ -30,6 +30,10 @@
     - `Title`: window title, internal data is `std::string`, passed to constructor like `Title{ "your title" }`, `Title{ your_string_convertible_variable }`, default empty string
     - `Width` and `Height`: window `width/height`, internal data is unsigned, passed to constructor like `Width{ 400u }`, default `640u/360u`
     - `LingerUS`: event loop linger (sleep) when swap buffering disabled on main thread, default to `1000 microseconds`, `Window` throws when this value exceeds 20 milliseconds
+    - `DebugGL`: optional bool which determine is created context should be with `OpenGL` debug enabled:
+      - not set or `nullopt`: only create debug context on debug builds (`NDEBUG` check)
+      - true: always create debug context
+      - false: never create debug context
 
 - [`<son8/windowed/window.hxx>`](./include/son8/windowed/window.hxx) (class `Window`):
   - enforce to be created on main thread
@@ -37,7 +41,8 @@
   - by default created with `VSync` on (not configurable yet)
   - only takes one constructor parameter `Config` which can be omitted (leads to creating window with size `640x360` and `OpenGL` version `4.6 compatibility profile`)
   - public methods:
-    - `bind_opengl`: mutex protected initializing `OpenGL` by making window context current via `glfw` call and loading functions using `glad` loader, throw standard runtime error exception when fail to load or already bounded
+    - `is_error`: check if error happened by returning boolean status, best usage as `is_error( bind_opengl( ))`
+    - `bind_opengl`: mutex protected initializing `OpenGL` by making window context current via `glfw` call and loading functions using `glad` loader, returns error code when fail to load or already bounded
     - `free_opengl`: mutex protected free window current context via `glfw` call
     - `swap_buffer`: calls `glfw` swap buffer function
     - `poll_events`: calls `glfw` poll events function
@@ -73,7 +78,9 @@
 
 using son8::windowed::Window;
 using Cfg = son8::windowed::Config;
-static constexpr std::array< unsigned, 8 > VersionsGlobal{{ 0x01'0500, 0x02'0100, 0x03'03CB, 0x03'03CE, 0x04'03CB, 0x04'03CE, 0x04'06CB, 0x0406CE }};
+static constexpr std::array< unsigned, 8u > VersionsGlobal [[maybe_unused]] {{
+    0x01'0500u, 0x02'0100u, 0x03'03CBu, 0x03'03CEu, 0x04'03CBu, 0x04'03CEu, 0x04'06CBu, 0x0406CEu
+}};
 static Cfg ConfigGlobal{ 0x01'0100u }; // setting `OpenGL` version to `1.1` unspecified
 
 namespace app { void draw( ); }
@@ -88,7 +95,7 @@ static Window *windowPtr;
 int main( ) {
     using namespace std::chrono_literals;
 #if APP_TEST == APP_TEST_BACKGROUND
-    std::thread background( []( ) {
+    std::thread background( [] {
         static Window windowBackground;
         windowPtr = &windowBackground;
     } );
@@ -98,47 +105,45 @@ int main( ) {
     windowPtr = &windowLocal;
 #elif APP_TEST == APP_TEST_LOOP
     unsigned loops = 0u;
-    while ( loops < VersionsGlobal.size( ) ) {
-        Window windowLoop{ ConfigGlobal.set( VersionsGlobal[loops++] ).set( Cfg::Height{ ConfigGlobal.height( ) + 90 } ) };
-        std::thread closeLoop( [&windowLoop]( ) {
+    while ( loops < VersionsGlobal.size( )) {
+        Window windowLoop{ ConfigGlobal.set( VersionsGlobal[loops++] ).set( Cfg::Height{ ConfigGlobal.height( ) + 90 })};
+        std::thread closeLoop( [&windowLoop] {
             std::this_thread::sleep_for( 1248ms );
             windowLoop.close( );
         });
-        windowLoop.run( []( ){ app::draw( ); } );
+        windowLoop.run( [] { app::draw( ); });
         closeLoop.join( );
     }
-    Window windowLoop1{ ConfigGlobal.set( son8::windowed::OpenGL::Vx010100 ).set( Cfg::Height{ 360u} ) };
+    Window windowLoop1{ ConfigGlobal.set( son8::windowed::OpenGL::Vx010100 ).set( Cfg::Height{ 360u })};
     windowPtr = &windowLoop1;
 #endif
     Window &window = *windowPtr;
-
-    glfwSetKeyCallback( window, []( GLFWwindow *w, int key, int scan, int action, int mods ){
-        if ( key == GLFW_KEY_Q ) windowPtr->close( ); // or `glfwSetWindowShouldClose( w, GLFW_TRUE );`
+    glfwSetKeyCallback( window, []( GLFWwindow *, int key, int, int, int ) {
+        if ( key == GLFW_KEY_Q ) { windowPtr->close( ); } // or `glfwSetWindowShouldClose( w, GLFW_TRUE );`
     });
-
-    std::thread close( []( ) {
+    std::thread close( [] {
         std::this_thread::sleep_for( 8421ms );
         windowPtr->close( );
     });
     close.detach( );
 #if APP_FINETUNE
-    if ( Window::is_error( window.init_opengl( ) ) ) return -1;
-    window.run_void( [&window]( ) { // not recommending this order, but rather fine tune example
+    if ( Window::is_error( window.bind_opengl( ))) return -1;
+    window.run_void( [&window] { // not recommending this order, but rather fine tune example
         app::draw( );
         window.swap_buffer( );
         window.poll_events( );
     });
     window.free_opengl( );
 #elif APP_2THREADS
-    std::thread draw( []( ) {
-        windowPtr->run_swap( []( ) { // by default calls `glfwSwapBuffers` after function ends
+    std::thread draw( [] {
+        windowPtr->run_swap( [] { // by default calls `glfwSwapBuffers` after function ends
             app::draw( );
         });
     });
-    window.run_poll( []( ) { } );
+    window.run_poll( [] { });
     draw.join( );
 #else
-    window.run( []( ) { // by default calls `glfwPollEvents` before function starts and `glfwSwapBuffers` after function ends
+    window.run( [] { // by default calls `glfwPollEvents` before function starts and `glfwSwapBuffers` after function ends
         app::draw( );
     });
 #endif

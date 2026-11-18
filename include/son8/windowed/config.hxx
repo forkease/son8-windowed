@@ -46,27 +46,42 @@ namespace son8::windowed {
             unsigned value{ 1'000u };
             operator unsigned( ) const noexcept { return value; }
         } linger_;
+        struct DebugGL_ final {
+            using OptBool_ = std::optional< bool >;
+            OptBool_ option;
+        } debugGL_;
+        using Copy_ = Config const &;
+        using Move_ = Config &&;
     public:
         using Width = Width_;
         using Height = Height_;
         using Title = Title_;
         using Version = Version_;
         using LingerUS = Linger_;
+        using DebugGL = DebugGL_;
+        // constructors
         template< typename ...Args >
         Config( Args &&...args )
-        { ( set( std::move( args ) ), ... ); }
+        { ( set( std::forward< Args >( args )), ... ); }
+        Config( Config & ) = default;
+        Config( Copy_ ) = default;
+        Config( Move_ ) = default;
+        Config &operator=( Copy_ ) = default;
+        Config &operator=( Move_ ) = default;
         // setters
         Config &set( Width width) { width_ = width; return *this; }
         Config &set( Height height) { height_ = height; return *this; }
-        Config &set( Title title) { title_ = title; return *this; }
+        Config &set( Title title) { title_ = std::move( title ); return *this; }
         Config &set( Version version ) { version_ = version; return *this; }
         Config &set( LingerUS lingerUS ) { linger_ = lingerUS; return *this; }
+        Config &set( DebugGL debugGL ) { debugGL_ = debugGL; return *this; }
         // getters
         auto width( ) const { return width_; }
         auto height( ) const { return height_; }
         auto title( ) const { return title_; }
         auto version( ) const { return version_; }
         auto linger_us( ) const { return linger_; }
+        auto debug_gl( ) const { return debugGL_; }
     }; // class Config
 } // namespace son8::windowed
 
