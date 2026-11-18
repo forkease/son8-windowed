@@ -15,11 +15,11 @@ if( NOT TARGET son8__overglad )
     FetchContent_Declare(
         son8__overglad
         GIT_REPOSITORY https://github.com/soneight/overglad.git
-        GIT_TAG        658f035836f2942c4a7b914ee0f5e12dfbbb7543 # v0.0.7
+        GIT_TAG        81e45016b5955d9150737fe252b53250c6d5aff2 # v0.0.8
     )
     FetchContent_MakeAvailable( son8__overglad )
 endif( )
-message( STATUS "${SON8_LIB}: found `son8__overglad` target" )
+message( STATUS "${SON8_LIB}: target `son8__overglad` found" )
 
 # Apache License 2.0
 # NO WARRANTY OF ANY KIND see <http://www.apache.org/licenses/LICENSE-2.0>

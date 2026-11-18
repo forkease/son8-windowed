@@ -9,12 +9,15 @@
 ## Usage
 
 ### Targets
-> `CMake` related
+> `CMake` related, install would be available only on release (on `v1.0.0`)
 
 - `son8::windowed`: alias of `son8__windowed` target, this library privately link `glfw::son8`, and publicly link `son8::overglad`
 - `glfw::son8`: alias of `glfw__son8` target, to use `glfw` functionality needs to be linked
 - `son8::overglad`: alias of `son8__overglad` target, required for `glad` loader functionality which link interface `glad::son8`
 - `glad::son8`: alias of `glad__son8` target, linked by default with `son8::windowed`
+
+### Fetch
+> TODO
 
 ### Headers
 > all `windowed son8` headers are combined inside `<son8/windowed.hxx>` header
