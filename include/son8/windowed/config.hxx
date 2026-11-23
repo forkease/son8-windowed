@@ -1,7 +1,6 @@
 #ifndef SON8_WINDOWED_CONFIG_HXX
 #define SON8_WINDOWED_CONFIG_HXX
 
-// #include <cstddef>
 #include <optional>
 #include <string>
 #include <utility>
@@ -33,12 +32,12 @@ namespace son8::windowed {
             operator char const *( ) const noexcept { return value.c_str( ); }
         } title_;
         struct Version_ final {
-            unsigned value{ static_cast< unsigned >( OpenGL::Vx0406CB ) };
+            unsigned value{ static_cast< unsigned >( OpenGL::Vx0406CB )};
             Version_( ) = default;
             Version_( unsigned version ) noexcept : value{ version } { }
-            Version_( OpenGL version ) noexcept : value{ static_cast< unsigned >( version ) } { }
+            Version_( OpenGL version ) noexcept : value{ static_cast< unsigned >( version )} { }
             Version_( unsigned major, unsigned minor, std::optional< bool > compat = std::nullopt ) noexcept
-            : value{ ( major << 16 ) | ( minor << 8 ) | ( compat ? ( compat.value() ? 0xCBu : 0xCEu) : 0x0u ) }
+            : value{ ( major << 16 ) | ( minor << 8 ) | ( compat ? ( compat.value( ) ? 0xCBu : 0xCEu ) : 0x0u )}
             { }
             operator unsigned( ) const noexcept { return value; }
         } version_;
@@ -85,7 +84,7 @@ namespace son8::windowed {
     }; // class Config
 } // namespace son8::windowed
 
-#endif//SON8_WINDOWED_CONFIG_HXX
+#endif // INCLUDE GUARD
 
 // Apache License 2.0
 // NO WARRANTY OF ANY KIND see <http://www.apache.org/licenses/LICENSE-2.0>

@@ -1,6 +1,7 @@
 #include <son8/windowed.hxx>
 // `son8`
 #include <glfw/son8.hxx> // `GLFWwindow, glfw*`
+// TODO: remove this header check on release `v1.0`
 #if !__has_include(<glad/son8/gl/loader.h>)
 #   error "missing dependency after moved glad son8 headers: update son8::overglad library version"
 #endif
@@ -34,7 +35,7 @@ namespace son8::windowed {
         struct Id {
             Id( ) {
                 auto &id = id_ref( );
-                if ( id == Thread::id{ } ) id = std::this_thread::get_id( );
+                if ( id == Thread::id{ }) id = std::this_thread::get_id( );
             }
         };
 
@@ -75,7 +76,7 @@ namespace son8::windowed {
             "son8::windowed: Window - Load glad failed",
         }};
         Impl_( Config const &configInit = { }) : config{ configInit } {
-            if ( not is_main_thread( ) ) {
+            if ( not is_main_thread( )) {
                 throw std::runtime_error{ "son8::windowed: Window requires create instances only on main thread" };
             }
 
@@ -172,7 +173,7 @@ namespace son8::windowed {
 
         Error load_opengl( ) const {
             // NOTE: requires `glfwMakeCurrentContext` to be active
-            assert( glfwGetCurrentContext( ) == window_ && "son8::windowed: Window implementation logic error, not an current context" );
+            assert( glfwGetCurrentContext( ) == window_ and "son8::windowed: Window implementation logic error, not an current context" );
             static Error_ loadError = []( ) {
                 if ( gladLoadGL( glfwGetProcAddress )) { return Error::None; }
 
@@ -185,7 +186,7 @@ namespace son8::windowed {
         auto window( ) const { return window_; }
     }; // class `Window::Impl_`
     // window public implementation
-    Window::Window( Config const &config ) : impl_{ new Impl_{ config } } { }
+    Window::Window( Config const &config ) : impl_{ new Impl_{ config }} { }
     Window::~Window( ) { delete impl_; }
 
     Window::operator GLFWwindow *( ) const {
@@ -195,7 +196,7 @@ namespace son8::windowed {
     void Window::free_opengl( ) {
         Lock contextLock{ impl_->swapMutex };
 
-        if ( not impl_->is_swap_thread_equal( ) ) return;
+        if ( not impl_->is_swap_thread_equal( )) return;
 
         glfwMakeContextCurrent( nullptr );
         impl_->swapThread = Thread::id{ };
@@ -249,7 +250,7 @@ namespace son8::windowed {
     // window private implementation
     // --
     void Window::if_Error_Throw( Error error ) const {
-        assert( error < Error::Size_ && "son8::windowed: Window::if_Error_Throw implementation logic error code exceed size" );
+        assert( error < Error::Size_ and "son8::windowed: Window::if_Error_Throw implementation logic error code exceed size" );
         if ( not is_error( error )) { return; }
         throw std::runtime_error{ Impl_::ErrorMessages[static_cast< Size >( error )] };
     }

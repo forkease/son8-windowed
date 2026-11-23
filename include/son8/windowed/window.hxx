@@ -15,7 +15,7 @@ namespace son8::windowed {
         Impl_ *impl_;
         enum class Error_ : unsigned {
             None,
-            AlreadyBound, ReinitOpenGL [[deprecated]] = AlreadyBound,
+            AlreadyBound, ReinitOpenGL [[deprecated]] = AlreadyBound, // TODO: remove deprecated on release `v1.0`
             LoadGlad,
             Size_
         };
@@ -28,7 +28,7 @@ namespace son8::windowed {
         static constexpr bool is_Poll_Linger( unsigned flags ) { return ~flags & Without::Poll_Linger; }
     public:
         using Error = Error_;
-        Window( Config const &config = { } );
+        Window( Config const &config = { });
         ~Window( );
         Window( Window && ) = delete;
         Window( Window const & ) = delete;
@@ -56,28 +56,28 @@ namespace son8::windowed {
         // generic run function, by default do all work useful in single threaded applications
         template< unsigned without = 0u, typename Callback, typename ...Args >
         void run( Callback &&callback, Args &&...args ) {
-            if constexpr ( is_Poll_Events( without ) ) check_Poll_Main_Thread( );
+            if constexpr ( is_Poll_Events( without )) { check_Poll_Main_Thread( ); }
 
-            if constexpr ( is_Swap_Buffer( without ) ) if_Error_Throw( bind_opengl( ) );
+            if constexpr ( is_Swap_Buffer( without )) { if_Error_Throw( bind_opengl( )); }
 
             // NOTE: lingering make only sense when there is none
             // \ buffer swapping involved and after user callback
             static constexpr bool Is_Linger_Active = not is_Swap_Buffer( without ) and is_Poll_Events( without ) and is_Poll_Linger( without );
 
-            while ( not is_closing( ) ) {
+            while ( not is_closing( )) {
                 if constexpr ( Is_Linger_Active ) {
                     auto startTime = poll_Linger_Start( );
                     poll_events( );
                     std::forward< Callback >( callback )( std::forward< Args >( args )... );
                     poll_Linger_Until( startTime );
                 } else {
-                    if constexpr ( is_Poll_Events( without ) ) poll_events( );
+                    if constexpr ( is_Poll_Events( without )) { poll_events( ); }
                     std::forward< Callback >( callback )( std::forward< Args >( args )... );
-                    if constexpr ( is_Swap_Buffer( without ) ) swap_buffer( );
+                    if constexpr ( is_Swap_Buffer( without )) { swap_buffer( ); }
                 }
             }
 
-            if constexpr ( is_Swap_Buffer( without ) ) free_opengl( );
+            if constexpr ( is_Swap_Buffer( without )) { free_opengl( ); }
         }
         // run without `OpenGL` initialization, useful for hidden or event only windows
         template< typename Callback, typename ...Args >
@@ -102,7 +102,7 @@ namespace son8::windowed {
 
 } // namespace son8::windowed
 
-#endif//SON8_WINDOWED_WINDOW_HXX
+#endif // INCLUDE GUARD
 
 // Apache License 2.0
 // NO WARRANTY OF ANY KIND see <http://www.apache.org/licenses/LICENSE-2.0>
