@@ -8,11 +8,13 @@
 #include <glad/son8/gl/loader.h> // `gladLoadGL`
 // `std`
 #include <array>
+#include <atomic>
 #include <cassert> // NOTE: use asserts only for implementation details (so no asserts on public interface)
 #include <cstddef> // `size_t`
 #include <chrono> // `duration`
 #include <iostream> // `cerr`
 #include <mutex> // `mutex, scoped_lock`
+#include <optional>
 #include <stdexcept> // `runtime_error`
 #include <thread> // `get_id( )`
 
@@ -35,13 +37,13 @@ namespace son8::windowed {
         struct Id {
             Id( ) {
                 auto &id = id_ref( );
-                if ( id == Thread::id{ }) id = std::this_thread::get_id( );
+                if ( id == Thread::id{ }) { id = std::this_thread::get_id( ); }
             }
         };
 
         struct InitGLFW {
             InitGLFW( ) {
-                if ( glfwInit( ) == GLFW_FALSE ) throw std::runtime_error( "son8::windowed: glfwInit() failed" );
+                if ( glfwInit( ) == GLFW_FALSE ) { throw std::runtime_error( "son8::windowed: glfwInit() failed" ); }
                 glfwSetErrorCallback( []( int errc, char const *desc ) {
                     std::cerr << "son8::windowed: glfwSetErrorCallback() code: " << errc << ", description: " << desc << '\n';
                 });
@@ -57,6 +59,8 @@ namespace son8::windowed {
     static Size GlobalWindowCount_{ };
 
     class Window::Impl_ {
+        std::optional< main_thread_::InitGLFW > initGLFW_;
+        std::optional< Error > cacheGLAD;
         GLFWwindow *window_;
         static constexpr Size Max_Count = 1u;
         static constexpr auto Max_Linger_US = 20'000u;
@@ -64,6 +68,7 @@ namespace son8::windowed {
         static constexpr auto Error_Size = static_cast< unsigned >( Error::Size_ );
     public:
         Config const config;
+        std::atomic< bool > isClosing{ };
         // NOTE: mutex only should be used on `(bind|free)_opengl` method pair
         Mutex /*mutable?*/ swapMutex;
         Thread::id swapThread{ };
@@ -79,8 +84,6 @@ namespace son8::windowed {
             if ( not is_main_thread( )) {
                 throw std::runtime_error{ "son8::windowed: Window requires create instances only on main thread" };
             }
-
-            { static main_thread_::InitGLFW InitGLFW; } // hide `InitGLFW` not used outside
             // NOTE: check always after `is_main_thread` check, it allow avoid using atomic
             // \ for global window counting, as window can be created only on 1 main thread
             if ( Max_Count <= GlobalWindowCount_ ) {
@@ -91,12 +94,11 @@ namespace son8::windowed {
                 throw std::runtime_error{ "son8::windowed: Config requires that linger does not exceed 20 milliseconds" };
             }
 
-            bool isValidRect = config.width( ) < Max_Viewport_Size and config.height( ) < Max_Viewport_Size;
+            bool isValidRect = config.width( ) <= Max_Viewport_Size and config.height( ) <= Max_Viewport_Size;
 
             if ( not isValidRect ) {
                 throw std::runtime_error{ "son8::windowed: Config requires width and height not exceed 8192 value in any dimension" };
             }
-
 
             auto version = config.version( );
             auto major = static_cast< int >( version >> 16u );
@@ -112,6 +114,9 @@ namespace son8::windowed {
             if ( check_minor[ major ] < minor ) {
                 throw std::runtime_error{ "son8::windowed: Config requires valid OpenGL minor version" };
             }
+
+            initGLFW_.emplace( );
+
             // NOTE: important to clear hints
             glfwDefaultWindowHints( );
         #ifndef NDEBUG
@@ -166,19 +171,23 @@ namespace son8::windowed {
             // \ to possible static (globals) objects out-order creation
             // \ main thread Global id could be not initialized properly
             // \ in case of background thread this check is always false
-            if ( id == Thread::id{ }) id = std::this_thread::get_id( );
+            if ( id == Thread::id{ }) { id = std::this_thread::get_id( ); }
 
             return std::this_thread::get_id( ) == id;
         }
 
-        Error load_opengl( ) const {
+        [[nodiscard]] Error load_opengl( ) {
+            // NOTE: retry also on failed, to allow load with different settings (maybe)
+            if ( cacheGLAD.has_value( ) and cacheGLAD ) { return cacheGLAD.value( ); }
             // NOTE: requires `glfwMakeCurrentContext` to be active
             assert( glfwGetCurrentContext( ) == window_ and "son8::windowed: Window implementation logic error, not an current context" );
-            static Error_ loadError = []( ) {
+            Error_ loadError = []( ) {
                 if ( gladLoadGL( glfwGetProcAddress )) { return Error::None; }
 
                 return Error::LoadGlad;
             }( );
+
+            cacheGLAD.emplace( loadError );
 
             return loadError;
         }
@@ -229,7 +238,7 @@ namespace son8::windowed {
     }
 
     bool Window::is_closing( ) const {
-        return glfwWindowShouldClose( impl_->window( ));
+        return impl_->isClosing.load( std::memory_order_relaxed );
     }
 
     bool Window::is_error( Error error ) noexcept {
@@ -237,11 +246,15 @@ namespace son8::windowed {
     }
 
     void Window::close( ) const {
-        glfwSetWindowShouldClose( impl_->window( ), GLFW_TRUE );
+        impl_->isClosing.store( true, std::memory_order_relaxed );
     }
 
     void Window::poll_events( ) const {
         glfwPollEvents( );
+
+        if ( glfwWindowShouldClose( impl_->window( ))) {
+            impl_->isClosing.store( true, std::memory_order_relaxed );
+        }
     }
 
     void Window::swap_buffer( ) const {
