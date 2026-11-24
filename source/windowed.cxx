@@ -41,6 +41,12 @@ namespace son8::windowed {
             }
         };
 
+        static Id Global;
+    }
+
+    static Size GlobalWindowCount_{ };
+
+    class Window::Impl_ {
         struct InitGLFW {
             InitGLFW( ) {
                 if ( glfwInit( ) == GLFW_FALSE ) { throw std::runtime_error( "son8::windowed: glfwInit() failed" ); }
@@ -52,15 +58,8 @@ namespace son8::windowed {
                 glfwTerminate( );
             }
         };
-
-        static Id Global;
-    }
-
-    static Size GlobalWindowCount_{ };
-
-    class Window::Impl_ {
-        std::optional< main_thread_::InitGLFW > initGLFW_;
-        std::optional< Error > cacheGLAD;
+        std::optional< InitGLFW > initGLFW_;
+        bool isCachedGLAD_;
         GLFWwindow *window_;
         static constexpr Size Max_Count = 1u;
         static constexpr auto Max_Linger_US = 20'000u;
@@ -178,18 +177,15 @@ namespace son8::windowed {
 
         [[nodiscard]] Error load_opengl( ) {
             // NOTE: retry also on failed, to allow load with different settings (maybe)
-            if ( cacheGLAD.has_value( ) and cacheGLAD ) { return cacheGLAD.value( ); }
+            if ( isCachedGLAD_ ) { return Error::None; }
             // NOTE: requires `glfwMakeCurrentContext` to be active
             assert( glfwGetCurrentContext( ) == window_ and "son8::windowed: Window implementation logic error, not an current context" );
-            Error_ loadError = []( ) {
-                if ( gladLoadGL( glfwGetProcAddress )) { return Error::None; }
 
-                return Error::LoadGlad;
-            }( );
+            if ( not gladLoadGL( glfwGetProcAddress )) { return Error::LoadGlad; }
 
-            cacheGLAD.emplace( loadError );
+            isCachedGLAD_ = true;
 
-            return loadError;
+            return Error::None;
         }
 
         auto window( ) const { return window_; }
