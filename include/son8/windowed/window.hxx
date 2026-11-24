@@ -64,7 +64,7 @@ namespace son8::windowed {
             // \ buffer swapping involved and after user callback
             static constexpr bool Is_Linger_Active = not is_Swap_Buffer( without ) and is_Poll_Events( without ) and is_Poll_Linger( without );
 
-            // NOTE: intentionally do NOT `std::forward` `callback` andor or `args` here
+            // NOTE: intentionally do NOT `std::forward` `callback` andor `args` here
             // \ because of the loop calls
             while ( not is_closing( )) {
                 if constexpr ( Is_Linger_Active ) {
