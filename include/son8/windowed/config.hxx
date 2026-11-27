@@ -1,11 +1,31 @@
 #ifndef SON8_WINDOWED_CONFIG_HXX
 #define SON8_WINDOWED_CONFIG_HXX
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
 
 namespace son8::windowed {
+
+    using ModeVeiled = std::uint8_t;
+
+    constexpr ModeVeiled Mode_Veiled_Full_Bit = 1u << 0u;
+    constexpr ModeVeiled Mode_Veiled_Fluid_Bit = 1u << 1u;
+    constexpr ModeVeiled Mode_Veiled_Square_Bit = 1u << 2u;
+    // mainly applied for user area
+    // \ , draw area either unrestricted (fluid), or same as user area (fixed)
+    enum class Mode : ModeVeiled {
+        Oblong_Fixed_Desk = 0u,
+        Oblong_Fixed_Full = Mode_Veiled_Full_Bit,
+        Oblong_Fluid_Desk = Mode_Veiled_Fluid_Bit,
+        Oblong_Fluid_Full = Mode_Veiled_Fluid_Bit | Mode_Veiled_Full_Bit,
+        Square_Fixed_Desk = Mode_Veiled_Square_Bit,
+        Square_Fixed_Full = Mode_Veiled_Square_Bit | Mode_Veiled_Full_Bit,
+        Square_Fluid_Desk = Mode_Veiled_Square_Bit | Mode_Veiled_Fluid_Bit,
+        Square_Fluid_Full = Mode_Veiled_Square_Bit | Mode_Veiled_Fluid_Bit | Mode_Veiled_Full_Bit
+    };
+
     enum class OpenGL : unsigned {
         Vx010100 = 0x010100u,
         Vx010500 = 0x010500u,
@@ -19,14 +39,30 @@ namespace son8::windowed {
     }; // enum class OpenGL
 
     class Config final {
+        struct Mode_ {
+            windowed::Mode mode{ windowed::Mode::Oblong_Fixed_Desk };
+            auto veiled( ) const noexcept { return static_cast< ModeVeiled >( mode ); }
+            bool is_full( ) const noexcept { return veiled( ) & Mode_Veiled_Full_Bit; }
+            bool is_fluid( ) const noexcept { return veiled( ) & Mode_Veiled_Fluid_Bit; }
+            bool is_square( ) const noexcept { return veiled( ) & Mode_Veiled_Square_Bit; }
+            Mode_( ) = default;
+            Mode_( windowed::Mode init ) : mode{ init } { }
+        } mode_;
+        struct Extent_ {
+            using Type_ = std::uint16_t;
+            Type_ w{ };
+            Type_ h{ };
+        } extent_;
         struct Width_ final {
-            unsigned value{ 640u };
-            operator unsigned( ) const noexcept { return value; }
-        } width_;
+            using Type_ = typename Extent_::Type_;
+            Type_ value{ };
+            operator Type_( ) const noexcept { return value; }
+        };
         struct Height_ final {
-            unsigned value{ 360u };
-            operator unsigned( ) const noexcept { return value; }
-        } height_;
+            using Type_ = typename Extent_::Type_;
+            Type_ value{ };
+            operator Type_( ) const noexcept { return value; }
+        };
         struct Title_ final {
             std::string value{ };
             operator char const *( ) const noexcept { return value.c_str( ); }
@@ -37,7 +73,7 @@ namespace son8::windowed {
             Version_( unsigned version ) noexcept : value{ version } { }
             Version_( OpenGL version ) noexcept : value{ static_cast< unsigned >( version )} { }
             Version_( unsigned major, unsigned minor, std::optional< bool > compat = std::nullopt ) noexcept
-            : value{ ( major << 16 ) | ( minor << 8 ) | ( compat ? ( compat.value( ) ? 0xCBu : 0xCEu ) : 0x0u )}
+            : value{ ( major << 16u ) | ( minor << 8u ) | ( compat ? ( compat.value( ) ? 0xCBu : 0xCEu ) : 0x0u )}
             { }
             operator unsigned( ) const noexcept { return value; }
         } version_;
@@ -52,6 +88,8 @@ namespace son8::windowed {
         using Copy_ = Config const &;
         using Move_ = Config &&;
     public:
+        using Mode = Mode_;
+        using Extent = Extent_;
         using Width = Width_;
         using Height = Height_;
         using Title = Title_;
@@ -68,15 +106,19 @@ namespace son8::windowed {
         Config &operator=( Copy_ ) = default;
         Config &operator=( Move_ ) = default;
         // setters
-        Config &set( Width width) { width_ = width; return *this; }
-        Config &set( Height height) { height_ = height; return *this; }
+        Config &set( Mode mode ) { mode_ = mode; return *this; }
+        Config &set( Extent extent ) { extent_ = extent; return *this; }
+        Config &set( Width width) { extent_.w = width; return *this; }
+        Config &set( Height height) { extent_.h = height; return *this; }
         Config &set( Title title) { title_ = std::move( title ); return *this; }
         Config &set( Version version ) { version_ = version; return *this; }
         Config &set( LingerUS lingerUS ) { linger_ = lingerUS; return *this; }
         Config &set( DebugGL debugGL ) { debugGL_ = debugGL; return *this; }
         // getters
-        auto width( ) const { return width_; }
-        auto height( ) const { return height_; }
+        auto mode( ) const { return mode_; }
+        auto extent( ) const { return extent_; }
+        auto width( ) const { return extent_.w; }
+        auto height( ) const { return extent_.h; }
         auto title( ) const { return title_; }
         auto version( ) const { return version_; }
         auto linger_us( ) const { return linger_; }
