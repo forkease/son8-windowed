@@ -52,6 +52,10 @@ namespace son8::windowed {
             using Type_ = std::uint16_t;
             Type_ w{ };
             Type_ h{ };
+            Extent_( ) = default;
+            Extent_( Type_ width, Type_ height ) : w{ width }, h{ height } { }
+            bool operator==( Extent_ other ) { return w == other.w and h == other.w; }
+            bool operator!=( Extent_ other ) { return w != other.w or h != other.w; }
         } extent_;
         struct Width_ final {
             using Type_ = typename Extent_::Type_;

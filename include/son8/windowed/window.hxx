@@ -59,33 +59,38 @@ namespace son8::windowed {
     public:
         using Error = Error_;
         using Frame = Frame_;
+        // constructors
         Window( Config const &config = { });
         ~Window( );
         Window( Window && ) = delete;
         Window( Window const & ) = delete;
         Window &operator=( Window && ) = delete;
         Window &operator=( Window const & ) = delete;
-
+        // special methods
         operator GLFWwindow *( ) const;
-
+        static bool is_error( Error error ) noexcept;
+        // configuration related
+        void apply( Config const &config );
+        auto config( ) const -> Config const &;
+        void reset( );
+        // `OpenGL` related
+        [[nodiscard]] Error bind_opengl( );
+        void free_opengl( );
+        // -- TODO: remove on version major 1
+        [[nodiscard]] [[deprecated("son8::windowed: Window, use bind_opengl instead, this function would be removed!")]]
+        Error init_opengl( );
+        auto frame( ) const -> Frame;
+        // `GLFW` related
+        void close( ) const;
+        bool is_closing( ) const;
+        void poll_events( ) const;
+        void swap_buffer( ) const;
+        // generic run function, by default do all work useful in single threaded applications
         struct Without final {
             static inline constexpr unsigned Poll_Events = 1u << 0u; // 1
             static inline constexpr unsigned Swap_Buffer = 1u << 1u; // 2
             static inline constexpr unsigned Poll_Linger = 1u << 2u; // 4
         };
-
-        void free_opengl( );
-        [[nodiscard]] Error bind_opengl( );
-        // TODO: remove on version major 1
-        [[nodiscard]] [[deprecated("son8::windowed: Window, use bind_opengl instead, this function would be removed!")]]
-        Error init_opengl( );
-        static bool is_error( Error error ) noexcept;
-        auto frame( ) const -> Frame;
-        bool is_closing( ) const;
-        void poll_events( ) const;
-        void swap_buffer( ) const;
-        void close( ) const;
-        // generic run function, by default do all work useful in single threaded applications
         template< unsigned without = 0u, typename Callback, typename ...Args >
         void run( Callback &&callback, Args &&...args ) {
             if constexpr ( is_Poll_Events( without )) { check_Poll_Main_Thread( ); }

@@ -69,7 +69,8 @@ namespace son8::windowed {
         static constexpr auto Error_Size = static_cast< unsigned >( Error::Size_ );
     public:
         std::atomic< std::uint64_t > framePacked;
-        Config const config;
+        Config const initConfig;
+        Config currConfig;
         std::atomic< bool > isClosing{ };
         // NOTE: mutex only should be used on `(bind|free)_opengl` method pair
         Mutex /*mutable?*/ swapMutex;
@@ -96,19 +97,21 @@ namespace son8::windowed {
 
         void frame_update( int w, int h ) {
             if ( w <= 0 || h <= 0 ) {
+                currConfig.set( Config::Extent{ 0, 0 });
                 framePacked.store( 0u, std::memory_order_relaxed );
                 return;
             }
 
             using ExtentType = Config::Extent::Type_;
-
-            Config::Extent extentDraw{
+            currConfig.set( Config::Extent{
                 static_cast< ExtentType >( w ),
                 static_cast< ExtentType >( h )
-            };
+            });
 
-            auto const modeConfig = config.mode( );
-            auto const extentConfig = config.extent( );
+            Config::Extent extentDraw = currConfig.extent( );
+
+            auto const modeConfig = currConfig.mode( );
+            auto const extentConfig = currConfig.extent( );
             Config::Extent extentMax = extentDraw;
             bool isSquare = modeConfig.is_square( );
 
@@ -148,7 +151,7 @@ namespace son8::windowed {
             framePacked.store( frame_pack( frame ), std::memory_order_relaxed );
         }
 
-        Impl_( Config const &configInit = { }) : config{ configInit } {
+        Impl_( Config const &config_ = { }) : initConfig{ config_ }, currConfig{ config_ } {
             if ( not is_main_thread( )) {
                 throw std::runtime_error{ "son8::windowed: Window requires create instances only on main thread" };
             }
@@ -158,11 +161,11 @@ namespace son8::windowed {
                 throw std::runtime_error{ "son8::windowed: Window requires only one instance per process" };
             }
 
-            if ( config.linger_us( ) > Max_Linger_US ) {
+            if ( initConfig.linger_us( ) > Max_Linger_US ) {
                 throw std::runtime_error{ "son8::windowed: Config requires that linger does not exceed 20 milliseconds" };
             }
 
-            auto version = config.version( );
+            auto version = initConfig.version( );
             auto major = static_cast< int >( version >> 16u );
 
             if ( 4 < major or major < 1 ) {
@@ -187,8 +190,8 @@ namespace son8::windowed {
                 }
             }
 
-            auto mode = config.mode( );
-            auto extent = config.extent( );
+            auto mode = initConfig.mode( );
+            auto extent = initConfig.extent( );
             bool isValidExtent = extent.w <= Max_Viewport_Size and extent.h <= Max_Viewport_Size;
 
             if ( not isValidExtent ) {
@@ -218,14 +221,14 @@ namespace son8::windowed {
             // \ true always set debug context hint
             // \ false never set debug context hint
             // NOTE: cannot check major or minor versions as actual version could differ from requested anyway
-            auto isDebugContext = config.debug_gl( ).option.value_or( Auto_Debug_GL ) ? GLFW_TRUE : GLFW_FALSE;
+            auto isDebugContext = initConfig.debug_gl( ).option.value_or( Auto_Debug_GL ) ? GLFW_TRUE : GLFW_FALSE;
             glfwWindowHint( GLFW_OPENGL_DEBUG_CONTEXT, isDebugContext );
             glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, major );
             glfwWindowHint( GLFW_CONTEXT_VERSION_MINOR, minor );
 
             if ( profileHint ) { glfwWindowHint( GLFW_OPENGL_PROFILE, profileHint ); }
 
-            glfwWindowHint( GLFW_RESIZABLE, config.mode( ).is_fluid( ) ? GLFW_TRUE : GLFW_FALSE );
+            glfwWindowHint( GLFW_RESIZABLE, initConfig.mode( ).is_fluid( ) ? GLFW_TRUE : GLFW_FALSE );
 
             bool isFullSuccess = mode.is_full( );
 
@@ -244,7 +247,7 @@ namespace son8::windowed {
                     glfwWindowHint( GLFW_REFRESH_RATE, modeGLFW->refreshRate );
                     glfwWindowHint( GLFW_AUTO_ICONIFY, GLFW_FALSE ); // avoid minimizing on focus loss / alt-tab
 
-                    window_ = glfwCreateWindow( modeGLFW->width, modeGLFW->height, config.title( ), monitorGLFW, nullptr );
+                    window_ = glfwCreateWindow( modeGLFW->width, modeGLFW->height, initConfig.title( ), monitorGLFW, nullptr );
 
                     if ( not window_ ) { throw std::runtime_error{ "son8::windowed: glfwCreateWindow() in full mode failed" }; }
 
@@ -257,7 +260,7 @@ namespace son8::windowed {
             int height{ extent.h };
 
             if ( not isFullSuccess ) {
-                window_ = glfwCreateWindow( width, height, config.title( ), nullptr, nullptr );
+                window_ = glfwCreateWindow( width, height, initConfig.title( ), nullptr, nullptr );
 
                 if ( not window_ ) { throw std::runtime_error{ "son8::windowed: glfwCreateWindow() in desk mode failed" }; }
                 // NOTE: for not resizable windows resize immediately
@@ -317,6 +320,23 @@ namespace son8::windowed {
     Window::operator GLFWwindow *( ) const {
         return impl_->window( );
     }
+
+    void Window::apply( Config const &config ) {
+        auto &curr = impl_->currConfig;
+        auto extent = config.extent( );
+
+        if ( extent.w and extent.w != curr.width( )) { curr.set( Config::Width{ extent.w }); }
+        if ( extent.h and extent.h != curr.height( )) { curr.set( Config::Height{ extent.h }); }
+
+        if ( extent != curr.extent( )) {
+            glfwSetWindowSize( impl_->window( ), curr.width( ), curr.height( ));
+        }
+    }
+
+    void Window::reset( ) { apply( impl_->initConfig ); }
+
+    auto Window::config( ) const -> Config const & { return impl_->currConfig; }
+
 
     auto Window::frame( ) const -> Frame {
         auto bits = impl_->framePacked.load(std::memory_order_relaxed);
@@ -410,7 +430,7 @@ namespace son8::windowed {
     void Window::poll_Linger_Until( long long startPoint ) const {
         auto duration = Clock::duration{ startPoint };
         auto timemark = Clock::time_point{ duration };
-        auto deadline = timemark + time::microseconds( impl_->config.linger_us( ));
+        auto deadline = timemark + time::microseconds( impl_->currConfig.linger_us( ));
         std::this_thread::sleep_until( deadline );
     }
 
