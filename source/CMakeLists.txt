@@ -3,11 +3,12 @@ set( CMAKE_CXX_STANDARD_REQUIRED ON )
 set( CMAKE_CXX_EXTENSIONS OFF )
 
 add_library( ${SON8_LIB} STATIC )
-target_sources( ${SON8_LIB} PRIVATE
-    windowed.cxx
-)
-
+target_sources( ${SON8_LIB} PRIVATE windowed.cxx )
 target_link_libraries( ${SON8_LIB} PRIVATE glfw::son8 )
+target_compile_options( ${SON8_LIB} PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -pedantic-errors -Wconversion -Wshadow>
+    $<$<CXX_COMPILER_ID:MSVC>:/permissive- /W4>
+)
 
 if( NOT TARGET son8__overglad )
     include( FetchContent )

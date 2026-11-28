@@ -46,6 +46,7 @@ namespace son8::windowed {
     }
 
     static Size GlobalWindowCount_{ };
+    static bool GlobalPendingTerminate_{ };
 
     class Window::Impl_ {
         struct InitGLFW {
@@ -56,10 +57,10 @@ namespace son8::windowed {
                 });
             }
            ~InitGLFW( ) {
-                glfwTerminate( );
+                if ( not GlobalWindowCount_ ) { glfwTerminate( ); }
+                else GlobalPendingTerminate_ = true;
             }
         };
-        std::optional< InitGLFW > initGLFW_;
         GLFWwindow *window_;
         bool isCachedGLAD_{ };
         static constexpr Size Max_Count = 1u;
@@ -67,7 +68,7 @@ namespace son8::windowed {
         static constexpr auto Max_Viewport_Size = 8192u;
         static constexpr auto Error_Size = static_cast< unsigned >( Error::Size_ );
     public:
-        std::atomic< std::uint64_t > framePacked_;
+        std::atomic< std::uint64_t > framePacked;
         Config const config;
         std::atomic< bool > isClosing{ };
         // NOTE: mutex only should be used on `(bind|free)_opengl` method pair
@@ -95,7 +96,7 @@ namespace son8::windowed {
 
         void frame_update( int w, int h ) {
             if ( w <= 0 || h <= 0 ) {
-                framePacked_.store( 0u, std::memory_order_relaxed );
+                framePacked.store( 0u, std::memory_order_relaxed );
                 return;
             }
 
@@ -144,7 +145,7 @@ namespace son8::windowed {
             if ( not extentUser.w or not extentUser.h ) { extentUser = { }; }
 
             Frame frame{ extentDraw.w, extentDraw.h, extentUser.w, extentUser.h };
-            framePacked_.store( frame_pack( frame ), std::memory_order_relaxed );
+            framePacked.store( frame_pack( frame ), std::memory_order_relaxed );
         }
 
         Impl_( Config const &configInit = { }) : config{ configInit } {
@@ -203,7 +204,7 @@ namespace son8::windowed {
                 }
             }
 
-            initGLFW_.emplace( );
+            static InitGLFW initGLFW;
             // NOTE: important to clear hints
             glfwDefaultWindowHints( );
             // OpenGL related hints
@@ -249,8 +250,7 @@ namespace son8::windowed {
 
                     return true;
                 };
-
-                if ( not try_full( )) { isFullSuccess = false; }
+                isFullSuccess = try_full( );
             }
 
             int width{ extent.w };
@@ -265,6 +265,7 @@ namespace son8::windowed {
                 if ( not mode.is_fluid()) { glfwSetWindowSize( window_, width, height ); }
             }
 
+            assert( window_ and "son8::windowed: internal logic error, window assumed to be created but actually..." );
             glfwSetWindowUserPointer(window_, this);
             glfwSetFramebufferSizeCallback( window_, []( GLFWwindow *win, int w, int h ) {
                 auto *self = static_cast<Impl_ *>( glfwGetWindowUserPointer(win));
@@ -280,6 +281,7 @@ namespace son8::windowed {
         ~Impl_( ) {
             glfwDestroyWindow( window_ );
             --GlobalWindowCount_;
+            if ( GlobalPendingTerminate_ and not GlobalWindowCount_ ) { glfwTerminate( ); }
         }
 
         bool is_main_thread( ) const {
@@ -317,10 +319,11 @@ namespace son8::windowed {
     }
 
     auto Window::frame( ) const -> Frame {
-        auto bits = impl_->framePacked_.load(std::memory_order_relaxed);
+        auto bits = impl_->framePacked.load(std::memory_order_relaxed);
         auto chunk = [&]( unsigned shift ) {
             return static_cast< std::uint16_t >(( bits >> shift ) & 0xFFFFu );
         };
+
         return Frame{
             chunk( 48u ),
             chunk( 32u ),

@@ -26,12 +26,17 @@
 
 - [`<son8/windowed/config.hxx>`](./include/son8/windowed/config.hxx) (class `Config` and enum class `OpenGL`):
   - constructor parameters for `Config` can be passed in any order and quantity, omitted values would have default values:
+    - `Mode`: window and `user extent` behavior across 3 orthogonal axis, default `Oblong_Fixed_Desk`
+      - `Oblong` vs `Square`: `16x9` VS `12x12` aspect ratio for user area
+      - `Fixed` vs `Fluid`: non-resizable `user extent` locked to provided `Extent` `VS` resizable window where `user area` centered dynamically while touching 2 edges of `draw area`
+      - `Desk` vs `Full`: standard framed desktop window `VS` windowed fullscreen monitor border-less window
     - `Version`: OpenGL version, either:
       - predefined constants from OpenGL enum class
       - hex formatted unsigned integer: 8 bit major, 8 bit minor, 8 bit profile (`CB` compatibility, `CE` core, `00` unspecified), like 0x010400, 0x020000, 0x0302CB, 0x0405CE
       - constructor with 3 parameters: major, minor and `std::optional` profile boolean: false `core`, true `compatibility`, not set `unspecified`
     - `Title`: window title, internal data is `std::string`, passed to constructor like `Title{ "your title" }`, `Title{ your_string_convertible_variable }`, default empty string
-    - `Width` and `Height`: window `width/height`, internal data is unsigned, passed to constructor like `Width{ 400u }`, default `640u/360u`
+    - `Extent`: requested window `user extent` dimensions for width and height, internal type is 2 byte unsigned integer, by default zeroed, when not passed resolved to `640x360` for `Oblong` mode and `480x480` for `Square` mode, throws when any dimensions exceeds `8192` or only one dimension is 0, usage `Extent{ 1280u, 720u }`
+    - `Width` and `Height`: single values overrides for `Extent`, usage `Width{ 640u }`
     - `LingerUS`: event loop linger (sleep) when swap buffering disabled on main thread, default to `1000 microseconds`, `Window` throws when this value exceeds 20 milliseconds
     - `DebugGL`: optional bool which determine is created context should be with `OpenGL` debug enabled:
       - not set or `nullopt`: only create debug context on debug builds (`NDEBUG` check)
@@ -43,16 +48,23 @@
   - enforce single `Window` per process
   - by default created with `VSync` on (not configurable yet)
   - only takes one constructor parameter `Config` which can be omitted (leads to creating window with size `640x360` and `OpenGL` version `4.6 compatibility profile`)
+  - structure helpers:
+    - `Error`: some functions that return error codes
+    - `Frame`: snapshot of current `draw extent` (full frame buffer) and `user extent` (centered aspect-locked bottom-left sub-rectangle inside `draw area` where `user area <= draw area` depending on current mode) with getters:
+      - `draw_w, draw_h, draw_extent`: frame buffer dimensions
+      - `user_w, user_h, user_extent`: sub-rectangle inside frame buffer dimensions
+      - `user_x, user_y`: centered bottom-left offset to `user extent` origin
   - public methods:
     - `is_error`: check if error happened by returning boolean status, best usage as `is_error( bind_opengl( ))`
     - `bind_opengl`: mutex protected initializing `OpenGL` by making window context current via `glfw` call and loading functions using `glad` loader, returns error code when fail to load or already bounded
     - `free_opengl`: mutex protected free window current context via `glfw` call
     - `swap_buffer`: calls `glfw` swap buffer function
     - `poll_events`: calls `glfw` poll events function
-    - `close`: set `glfw` window should close to true
-    - `is_closing`: checks is window should close via `glfw` call
+    - `close`: thread-safe atomic  request to close the window
+    - `is_closing`: thread-safe atomic check if window should close
+    - `frame`: returns thread-safe atomic `Frame` snapshot (internally packed as 8 byte unsigned integer, unpacked on return)
   - templated `run*` blocking calling thread methods family (accepts callable function with variadic forwarding arguments until `is_closing` requested via `close` call):
-    - `run`: enforce `poll_events` only on main thread, manually calls `init_opengl` before loop and `free_opengl` after loop, and support compile-time feature `disabler's`:
+    - `run`: enforce `poll_events` only on main thread, manually calls `bind_opengl` before loop and `free_opengl` after loop, and support compile-time feature `disabler's`:
       - `Window::Without::Poll_Events`: disable run `poll_events` method
       - `Window::Without::Swap_Buffer`: disable run `swap_buffer` method
       - `Window::Without::Poll_Linger`: disable run private `poll_Linger` method, only works when buffer swapping is skipped
@@ -67,72 +79,69 @@
 #include <son8/windowed.hxx> // `CMake` target `son8::windowed`
 #include <glad/son8.hxx> // `CMake` target `glad::son8`
 #include <glfw/son8.hxx> // `CMake` target `glfw::son8`
-#include <array>
+#include <chrono>
 #include <thread>
 
 #define APP_FINETUNE 0 // require to call wrapper functions for glfw manually in user preferred way
 #define APP_2THREADS 1 // 2 threads, first main thread for polling events, second background thread for opengl rendering
 
 #define APP_TEST 0
-#define APP_TEST_LOCAL 0
-#define APP_TEST_LOOP 1
+#define APP_TEST_LOOP 0
+#define APP_TEST_LOCAL 1
 #define APP_TEST_GLOBAL 2
 #define APP_TEST_BACKGROUND 3 // should throw because Window not created on main thread
 
-using son8::windowed::Window;
-using Cfg = son8::windowed::Config;
-static constexpr std::array< unsigned, 8u > VersionsGlobal [[maybe_unused]] {{
-    0x01'0500u, 0x02'0100u, 0x03'03CBu, 0x03'03CEu, 0x04'03CBu, 0x04'03CEu, 0x04'06CBu, 0x0406CEu
-}};
-static Cfg ConfigGlobal{ 0x01'0100u }; // setting `OpenGL` version to `1.1` unspecified
+namespace wnd = son8::windowed;
+static unsigned VersionsGlobal[8u] = {
+    0x01'0500u, 0x02'0100u, 0x03'03CBu, 0x03'03CBu, 0x04'03CBu, 0x04'03CBu, 0x04'06CBu, 0x0406CBu
+};
+[[maybe_unused]] static constexpr wnd::Mode ModesGlobal[8u] = {
+    wnd::Mode::Oblong_Fixed_Desk, wnd::Mode::Oblong_Fixed_Full, wnd::Mode::Oblong_Fluid_Desk, wnd::Mode::Oblong_Fluid_Full,
+    wnd::Mode::Square_Fixed_Desk, wnd::Mode::Square_Fixed_Full, wnd::Mode::Square_Fluid_Desk, wnd::Mode::Square_Fluid_Full
+};
+[[maybe_unused]] static wnd::Config ConfigGlobal{ 0x01'0100u, wnd::Mode::Oblong_Fluid_Desk };
 
-namespace app { void draw( ); }
+namespace app { void draw( wnd::Window const &window ); }
 
 #if APP_TEST == APP_TEST_GLOBAL
-static Window WindowGlobal{ ConfigGlobal };
-static Window *windowPtr = &WindowGlobal;
+static wnd::Window WindowGlobal{ ConfigGlobal };
+static wnd::Window *windowPtr = &WindowGlobal;
 #else
-static Window *windowPtr;
+static wnd::Window *windowPtr;
 #endif
 
 int main( ) {
-    using namespace std::chrono_literals;
 #if APP_TEST == APP_TEST_BACKGROUND
     std::thread background( [] {
-        static Window windowBackground;
+        static wnd::Window windowBackground;
         windowPtr = &windowBackground;
-    } );
+    });
     background.join( );
 #elif APP_TEST == APP_TEST_LOCAL
-    Window windowLocal;
+    wnd::Window windowLocal;
     windowPtr = &windowLocal;
 #elif APP_TEST == APP_TEST_LOOP
     unsigned loops = 0u;
-    while ( loops < VersionsGlobal.size( )) {
-        Window windowLoop{ ConfigGlobal.set( VersionsGlobal[loops++] ).set( Cfg::Height{ ConfigGlobal.height( ) + 90 })};
+    while ( loops < 8u) {
+        wnd::Window windowLoop{ ConfigGlobal.set( VersionsGlobal[loops] ).set( ModesGlobal[loops++] )};
         std::thread closeLoop( [&windowLoop] {
-            std::this_thread::sleep_for( 1248ms );
+            std::this_thread::sleep_for( std::chrono::milliseconds( 1248 ));
             windowLoop.close( );
         });
-        windowLoop.run( [] { app::draw( ); });
+        windowLoop.run( [&windowLoop] { app::draw( windowLoop ); });
         closeLoop.join( );
     }
-    Window windowLoop1{ ConfigGlobal.set( son8::windowed::OpenGL::Vx010100 ).set( Cfg::Height{ 360u })};
+    wnd::Window windowLoop1{ ConfigGlobal.set( wnd::OpenGL::Vx010100 ).set( wnd::Mode::Square_Fixed_Desk )};
     windowPtr = &windowLoop1;
 #endif
-    Window &window = *windowPtr;
+    wnd::Window &window = *windowPtr;
     glfwSetKeyCallback( window, []( GLFWwindow *, int key, int, int, int ) {
-        if ( key == GLFW_KEY_Q ) { windowPtr->close( ); } // or `glfwSetWindowShouldClose( w, GLFW_TRUE );`
+        if ( key == GLFW_KEY_Q ) { windowPtr->close( ); }
     });
-    std::thread close( [] {
-        std::this_thread::sleep_for( 8421ms );
-        windowPtr->close( );
-    });
-    close.detach( );
 #if APP_FINETUNE
-    if ( Window::is_error( window.bind_opengl( ))) return -1;
+    if ( wnd::Window::is_error( window.bind_opengl( ))) return -1;
     window.run_void( [&window] { // not recommending this order, but rather fine tune example
-        app::draw( );
+        app::draw( *windowPtr );
         window.swap_buffer( );
         window.poll_events( );
     });
@@ -140,21 +149,24 @@ int main( ) {
 #elif APP_2THREADS
     std::thread draw( [] {
         windowPtr->run_swap( [] { // by default calls `glfwSwapBuffers` after function ends
-            app::draw( );
+            app::draw( *windowPtr );
         });
     });
     window.run_poll( [] { });
     draw.join( );
 #else
     window.run( [] { // by default calls `glfwPollEvents` before function starts and `glfwSwapBuffers` after function ends
-        app::draw( );
+        app::draw( *windowPtr );
     });
 #endif
 }
 
-void app::draw( ) {
+void app::draw( wnd::Window const &window ) {
+    auto frame = window.frame( );
+    glViewport( 0, 0, frame.draw_w( ), frame.draw_h( ));
     glClearColor( .2f, .2f, .4f, 0.f );
     glClear( GL_COLOR_BUFFER_BIT );
+    glMatrixMode( GL_PROJECTION );
     glLoadIdentity( );
     glOrtho(-0.2, 1.2,-0.2, 1.2,-1.0, 1.0 );
     glBegin( GL_QUADS ); {
